@@ -34,6 +34,8 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
     error Validly__deposit_lessThanMinShares();
     error Validly__deposit_zeroShares();
     error Validly__getLiquidityQuote_feeInBipsZero();
+    error Validly__onSwapCallback_notAllowed();
+    error Validly__onSwapCallback_stableInvariantViolated();
     error Validly__withdraw_AmountZero();
     error Validly__withdraw_insufficientToken0Withdrawn();
     error Validly__withdraw_insufficientToken1Withdrawn();
@@ -47,6 +49,8 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
      *
      */
     uint256 public constant MINIMUM_LIQUIDITY = 1000;
+
+    bytes32 public constant INVARIANT_CACHE_SLOT = keccak256("validly.invariant");
 
     /**
      *
@@ -80,16 +84,14 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
      *  CONSTRUCTOR
      *
      */
-    constructor(
-        address _pool,
-        bool _isStable
-    ) ERC20("Validly LP Token", "VAL-LP") {
+    constructor(address _pool, bool _isStable) ERC20("Validly LP Token", "VAL-LP") {
         if (_pool == address(0)) revert Validly__constructor_invalidPool();
 
         pool = ISovereignPool(_pool);
 
-        if (pool.sovereignVault() != _pool)
+        if (pool.sovereignVault() != _pool) {
             revert Validly__constructor_customSovereignVaultNotAllowed();
+        }
 
         isStable = _isStable;
 
@@ -129,20 +131,15 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
      * @param _recipient Address to mint LP tokens for.
      * @return shares Amount of shares minted.
      */
-    function deposit(
-        uint256 _amount0,
-        uint256 _amount1,
-        uint256 _minShares,
-        uint256 _deadline,
-        address _recipient
-    )
+    function deposit(uint256 _amount0, uint256 _amount1, uint256 _minShares, uint256 _deadline, address _recipient)
         external
         ensureDeadline(_deadline)
         nonReentrant
         returns (uint256 shares, uint256 amount0, uint256 amount1)
     {
-        if (_recipient == address(0))
+        if (_recipient == address(0)) {
             revert Validly__deposit_invalidRecipient();
+        }
 
         uint256 totalSupplyCache = totalSupply();
         if (totalSupplyCache == 0) {
@@ -162,30 +159,22 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
             // Normal deposits are made using `onDepositLiquidityCallback`
             if (shares0 < shares1) {
                 shares = shares0;
-                amount1 = Math.mulDiv(
-                    reserve1,
-                    shares,
-                    totalSupplyCache,
-                    Math.Rounding.Ceil
-                );
+                amount1 = Math.mulDiv(reserve1, shares, totalSupplyCache, Math.Rounding.Ceil);
                 amount0 = _amount0;
             } else {
                 shares = shares1;
-                amount0 = Math.mulDiv(
-                    reserve0,
-                    shares,
-                    totalSupplyCache,
-                    Math.Rounding.Ceil
-                );
+                amount0 = Math.mulDiv(reserve0, shares, totalSupplyCache, Math.Rounding.Ceil);
                 amount1 = _amount1;
             }
 
             // This is a sanity check to ensure that the amounts are not over the amounts specified.
             // This can occur due to rounding errors in mulDiv ceiling.
-            if (amount0 > _amount0)
+            if (amount0 > _amount0) {
                 revert Validly__deposit_insufficientToken0Deposited();
-            if (amount1 > _amount1)
+            }
+            if (amount1 > _amount1) {
                 revert Validly__deposit_insufficientToken1Deposited();
+            }
         }
 
         if (shares < _minShares) revert Validly__deposit_lessThanMinShares();
@@ -194,13 +183,7 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
 
         _mint(_recipient, shares);
 
-        (amount0, amount1) = pool.depositLiquidity(
-            amount0,
-            amount1,
-            msg.sender,
-            "",
-            abi.encode(msg.sender)
-        );
+        (amount0, amount1) = pool.depositLiquidity(amount0, amount1, msg.sender, "", abi.encode(msg.sender));
     }
 
     /**
@@ -213,13 +196,7 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
      * @return amount0 Amount of token0 withdrawn. WARNING: Potentially innacurate in case token0 is rebase.
      * @return amount1 Amount of token1 withdrawn. WARNING: Potentially innacurate in case token1 is rebase.
      */
-    function withdraw(
-        uint256 _shares,
-        uint256 _amount0Min,
-        uint256 _amount1Min,
-        uint256 _deadline,
-        address _recipient
-    )
+    function withdraw(uint256 _shares, uint256 _amount0Min, uint256 _amount1Min, uint256 _deadline, address _recipient)
         external
         ensureDeadline(_deadline)
         nonReentrant
@@ -227,8 +204,9 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
     {
         if (_shares == 0) revert Validly__withdraw_zeroShares();
 
-        if (_recipient == address(0))
+        if (_recipient == address(0)) {
             revert Validly__withdraw_invalidRecipient();
+        }
 
         (uint256 reserve0, uint256 reserve1) = pool.getReserves();
 
@@ -239,10 +217,12 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
         if (amount0 == 0 || amount1 == 0) revert Validly__withdraw_AmountZero();
 
         // Slippage protection checks
-        if (amount0 < _amount0Min)
+        if (amount0 < _amount0Min) {
             revert Validly__withdraw_insufficientToken0Withdrawn();
-        if (amount1 < _amount1Min)
+        }
+        if (amount1 < _amount1Min) {
             revert Validly__withdraw_insufficientToken1Withdrawn();
+        }
 
         _burn(msg.sender, _shares);
 
@@ -252,27 +232,19 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
     /**
      * @notice Callback to transfer tokens from user into `pool` during deposits.
      */
-    function onDepositLiquidityCallback(
-        uint256 _amount0,
-        uint256 _amount1,
-        bytes memory _data
-    ) external override onlyPool {
+    function onDepositLiquidityCallback(uint256 _amount0, uint256 _amount1, bytes memory _data)
+        external
+        override
+        onlyPool
+    {
         address user = abi.decode(_data, (address));
 
         if (_amount0 > 0) {
-            IERC20Metadata(pool.token0()).safeTransferFrom(
-                user,
-                msg.sender,
-                _amount0
-            );
+            IERC20Metadata(pool.token0()).safeTransferFrom(user, msg.sender, _amount0);
         }
 
         if (_amount1 > 0) {
-            IERC20Metadata(pool.token1()).safeTransferFrom(
-                user,
-                msg.sender,
-                _amount1
-            );
+            IERC20Metadata(pool.token1()).safeTransferFrom(user, msg.sender, _amount1);
         }
     }
 
@@ -283,55 +255,56 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
      */
     function getLiquidityQuote(
         ALMLiquidityQuoteInput memory _poolInput,
-        bytes calldata /*_externalContext*/,
+        bytes calldata, /*_externalContext*/
         bytes calldata /*_verifierData*/
-    ) external view override returns (ALMLiquidityQuote memory quote) {
-        if (_poolInput.feeInBips == 0)
+    ) external override onlyPool returns (ALMLiquidityQuote memory quote) {
+        if (_poolInput.feeInBips == 0) {
             revert Validly__getLiquidityQuote_feeInBipsZero();
+        }
 
         (uint256 reserve0, uint256 reserve1) = pool.getReserves();
 
-        (uint256 reserveIn, uint256 reserveOut) = _poolInput.isZeroToOne
-            ? (reserve0, reserve1)
-            : (reserve1, reserve0);
+        (uint256 reserveIn, uint256 reserveOut) = _poolInput.isZeroToOne ? (reserve0, reserve1) : (reserve1, reserve0);
 
         if (isStable) {
             uint256 stableInvariant = _stableInvariant(reserve0, reserve1);
             // Scale reserves and amounts to 18 decimals
-            reserveIn = _poolInput.isZeroToOne
-                ? (reserveIn * 1e18) / decimals0
-                : (reserveIn * 1e18) / decimals1;
-            reserveOut = _poolInput.isZeroToOne
-                ? (reserveOut * 1e18) / decimals1
-                : (reserveOut * 1e18) / decimals0;
+            reserveIn = _poolInput.isZeroToOne ? (reserveIn * 1e18) / decimals0 : (reserveIn * 1e18) / decimals1;
+            reserveOut = _poolInput.isZeroToOne ? (reserveOut * 1e18) / decimals1 : (reserveOut * 1e18) / decimals0;
             uint256 amountIn = _poolInput.isZeroToOne
                 ? (_poolInput.amountInMinusFee * 1e18) / decimals0
                 : (_poolInput.amountInMinusFee * 1e18) / decimals1;
-            uint256 amountOut = reserveOut -
-                _get_y_stableInvariant(
-                    amountIn + reserveIn,
-                    stableInvariant,
-                    reserveOut
-                );
+            uint256 amountOut = reserveOut - _get_y_stableInvariant(amountIn + reserveIn, stableInvariant, reserveOut);
 
-            quote.amountOut =
-                (amountOut * (_poolInput.isZeroToOne ? decimals1 : decimals0)) /
-                1e18;
+            quote.amountOut = (amountOut * (_poolInput.isZeroToOne ? decimals1 : decimals0)) / 1e18;
+            quote.isCallbackOnSwap = true;
+            _cacheInvariant();
         } else {
-            quote.amountOut =
-                (reserveOut * _poolInput.amountInMinusFee) /
-                (reserveIn + _poolInput.amountInMinusFee);
+            quote.amountOut = (reserveOut * _poolInput.amountInMinusFee) / (reserveIn + _poolInput.amountInMinusFee);
         }
 
         quote.amountInFilled = _poolInput.amountInMinusFee;
     }
 
-    // solhint-disable-next-line no-empty-blocks
-    function onSwapCallback(
-        bool /*_isZeroToOne*/,
-        uint256 /*_amountIn*/,
-        uint256 /*_amountOut*/
-    ) external override {}
+    /**
+     * @notice Callback to check invariant after swap.
+     */
+    function onSwapCallback(bool, /*_isZeroToOne*/ uint256, /*_amountIn*/ uint256 /*_amountOut*/ )
+        external
+        override
+        onlyPool
+    {
+        if (isStable) {
+            (uint256 reserve0, uint256 reserve1) = pool.getReserves();
+            uint256 invariant = _stableInvariant(reserve0, reserve1);
+            if (invariant < _getCachedInvariant()) {
+                revert Validly__onSwapCallback_stableInvariantViolated();
+            }
+            _clearInvariant();
+        } else {
+            revert Validly__onSwapCallback_notAllowed();
+        }
+    }
 
     /**
      *
@@ -345,25 +318,14 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
     }
 
     function _f(uint256 x0, uint256 y) private pure returns (uint256) {
-        return
-            (x0 * ((((y * y) / 1e18) * y) / 1e18)) /
-            1e18 +
-            (((((x0 * x0) / 1e18) * x0) / 1e18) * y) /
-            1e18;
+        return (x0 * ((((y * y) / 1e18) * y) / 1e18)) / 1e18 + (((((x0 * x0) / 1e18) * x0) / 1e18) * y) / 1e18;
     }
 
     function _d(uint256 x0, uint256 y) private pure returns (uint256) {
-        return
-            (3 * x0 * ((y * y) / 1e18)) /
-            1e18 +
-            ((((x0 * x0) / 1e18) * x0) / 1e18);
+        return (3 * x0 * ((y * y) / 1e18)) / 1e18 + ((((x0 * x0) / 1e18) * x0) / 1e18);
     }
 
-    function _get_y_stableInvariant(
-        uint256 x0,
-        uint256 invariant,
-        uint256 y
-    ) private pure returns (uint256) {
+    function _get_y_stableInvariant(uint256 x0, uint256 invariant, uint256 y) private pure returns (uint256) {
         for (uint256 i = 0; i < 255; i++) {
             uint256 y_prev = y;
             uint256 k = _f(x0, y);
@@ -389,14 +351,36 @@ contract Validly is ISovereignALM, ERC20, ReentrancyGuard {
         revert Validly___get_y_notConverged();
     }
 
-    function _stableInvariant(
-        uint256 x,
-        uint256 y
-    ) private view returns (uint256) {
+    function _stableInvariant(uint256 x, uint256 y) private view returns (uint256) {
         uint256 _x = (x * 1e18) / decimals0;
         uint256 _y = (y * 1e18) / decimals1;
         uint256 _a = (_x * _y) / 1e18;
         uint256 _b = ((_x * _x) / 1e18 + (_y * _y) / 1e18);
         return (_a * _b) / 1e18; // x3y+y3x >= k
+    }
+
+    function _cacheInvariant() internal {
+        (uint256 reserve0, uint256 reserve1) = pool.getReserves();
+        uint256 invariant = _stableInvariant(reserve0, reserve1);
+        bytes32 invariantSlot = INVARIANT_CACHE_SLOT;
+        assembly {
+            tstore(invariantSlot, invariant)
+        }
+    }
+
+    function _getCachedInvariant() internal view returns (uint256) {
+        uint256 invariant;
+        bytes32 invariantSlot = INVARIANT_CACHE_SLOT;
+        assembly {
+            invariant := tload(invariantSlot)
+        }
+        return invariant;
+    }
+
+    function _clearInvariant() internal {
+        bytes32 invariantSlot = INVARIANT_CACHE_SLOT;
+        assembly {
+            tstore(invariantSlot, 0)
+        }
     }
 }

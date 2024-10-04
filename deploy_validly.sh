@@ -1,0 +1,2 @@
+#! Add --broadcast --verify flags at the end of this comment to execute deployment
+eval $(grep '^RPC_URL' .env) && forge script scripts/ValidlyFactoryDeploy.s.sol:ValidlyFactoryDeploy --rpc-url $RPC_URL

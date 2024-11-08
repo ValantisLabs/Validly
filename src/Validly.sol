@@ -188,6 +188,8 @@ contract Validly is IValidly, ERC20, ReentrancyGuard {
 
         (amount0, amount1) =
             pool.depositLiquidity(amount0, amount1, msg.sender, _verificationContext, abi.encode(msg.sender));
+
+        emit Deposit(msg.sender, _recipient, amount0, amount1, shares);
     }
 
     /**
@@ -234,6 +236,8 @@ contract Validly is IValidly, ERC20, ReentrancyGuard {
         _burn(msg.sender, _shares);
 
         pool.withdrawLiquidity(amount0, amount1, msg.sender, _recipient, _verificationContext);
+
+        emit Withdraw(msg.sender, _recipient, amount0, amount1, _shares);
     }
 
     /**

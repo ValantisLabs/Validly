@@ -217,11 +217,13 @@ contract Validly is IValidly, ERC20, ReentrancyGuard {
             revert Validly__withdraw_invalidRecipient();
         }
 
-        (uint256 reserve0, uint256 reserve1) = pool.getReserves();
+        {
+            (uint256 reserve0, uint256 reserve1) = pool.getReserves();
 
-        uint256 totalSupplyCache = totalSupply();
-        amount0 = Math.mulDiv(reserve0, _shares, totalSupplyCache);
-        amount1 = Math.mulDiv(reserve1, _shares, totalSupplyCache);
+            uint256 totalSupplyCache = totalSupply();
+            amount0 = Math.mulDiv(reserve0, _shares, totalSupplyCache);
+            amount1 = Math.mulDiv(reserve1, _shares, totalSupplyCache);
+        }
 
         if (amount0 == 0 || amount1 == 0) revert Validly__withdraw_AmountZero();
 

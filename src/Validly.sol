@@ -188,6 +188,8 @@ contract Validly is IValidly, ERC20, ReentrancyGuard {
 
         (amount0, amount1) =
             pool.depositLiquidity(amount0, amount1, msg.sender, _verificationContext, abi.encode(msg.sender));
+
+        emit Deposit(msg.sender, _recipient, amount0, amount1, shares);
     }
 
     /**
@@ -215,11 +217,13 @@ contract Validly is IValidly, ERC20, ReentrancyGuard {
             revert Validly__withdraw_invalidRecipient();
         }
 
-        (uint256 reserve0, uint256 reserve1) = pool.getReserves();
+        {
+            (uint256 reserve0, uint256 reserve1) = pool.getReserves();
 
-        uint256 totalSupplyCache = totalSupply();
-        amount0 = Math.mulDiv(reserve0, _shares, totalSupplyCache);
-        amount1 = Math.mulDiv(reserve1, _shares, totalSupplyCache);
+            uint256 totalSupplyCache = totalSupply();
+            amount0 = Math.mulDiv(reserve0, _shares, totalSupplyCache);
+            amount1 = Math.mulDiv(reserve1, _shares, totalSupplyCache);
+        }
 
         if (amount0 == 0 || amount1 == 0) revert Validly__withdraw_AmountZero();
 
@@ -234,6 +238,8 @@ contract Validly is IValidly, ERC20, ReentrancyGuard {
         _burn(msg.sender, _shares);
 
         pool.withdrawLiquidity(amount0, amount1, msg.sender, _recipient, _verificationContext);
+
+        emit Withdraw(msg.sender, _recipient, amount0, amount1, _shares);
     }
 
     /**

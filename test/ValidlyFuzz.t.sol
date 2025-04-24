@@ -14,12 +14,14 @@ import {SovereignPoolFactory} from "@valantis-core/pools/factories/SovereignPool
 import {ALMLiquidityQuoteInput, ALMLiquidityQuote} from "@valantis-core/ALM/structs/SovereignALMStructs.sol";
 
 import {Validly} from "../src/Validly.sol";
+import {ValidlyLens} from "../src/ValidlyLens.sol";
 import {ValidlyFactory} from "../src/ValidlyFactory.sol";
 
 contract ValidlyFuzzTest is Test {
     error SovereignPool__swap_zeroAmountInOrOut();
 
     ValidlyFactory factory;
+    ValidlyLens lens;
 
     ERC20Mock token0;
     ERC20Mock token1;
@@ -33,6 +35,8 @@ contract ValidlyFuzzTest is Test {
     function setUp() public {
         token0 = new ERC20Mock();
         token1 = new ERC20Mock();
+
+        lens = new ValidlyLens();
 
         (token0, token1) = address(token0) < address(token1) ? (token0, token1) : (token1, token0);
 
@@ -88,8 +92,14 @@ contract ValidlyFuzzTest is Test {
                 return;
             }
 
+            (uint256 sharesSimulation, uint256 amount0DepositedSimulation, uint256 amount1DepositedSimulation) =
+                lens.simulateDeposit(address(volatilePair), amount0, amount1);
             (uint256 shares, uint256 amount0Deposited, uint256 amount1Deposited) =
                 volatilePair.deposit(amount0, amount1, 0, block.timestamp + 1, address(1), "");
+
+            assertEq(sharesSimulation, shares);
+            assertEq(amount0DepositedSimulation, amount0Deposited);
+            assertEq(amount1DepositedSimulation, amount1Deposited);
 
             assertEq(amount0Deposited, amount0);
             assertEq(amount1Deposited, amount1);
@@ -103,8 +113,14 @@ contract ValidlyFuzzTest is Test {
                 return;
             }
 
+            (uint256 sharesSimulation, uint256 amount0DepositedSimulation, uint256 amount1DepositedSimulation) =
+                lens.simulateDeposit(address(volatilePair), amount0, amount1);
             (uint256 shares, uint256 amount0Deposited, uint256 amount1Deposited) =
                 volatilePair.deposit(amount0, amount1, 0, block.timestamp + 1, address(1), "");
+
+            assertEq(sharesSimulation, shares);
+            assertEq(amount0DepositedSimulation, amount0Deposited);
+            assertEq(amount1DepositedSimulation, amount1Deposited);
 
             assertLe(amount0Deposited, amount0);
             assertLe(amount1Deposited, amount1);
@@ -149,7 +165,10 @@ contract ValidlyFuzzTest is Test {
             return;
         }
 
+        (uint256 amount0Simulation, uint256 amount1Simulation) = lens.simulateWithdraw(address(volatilePair), shares);
         (uint256 amount0, uint256 amount1) = volatilePair.withdraw(shares, 0, 0, block.timestamp + 1, address(this), "");
+        assertEq(amount0, amount0Simulation);
+        assertEq(amount1, amount1Simulation);
 
         assertEq(amount0, expectedAmount0);
         assertEq(amount1, expectedAmount1);
@@ -197,7 +216,9 @@ contract ValidlyFuzzTest is Test {
             return;
         }
 
+        uint256 amountOutSimulation = lens.simulateSwap(address(volatilePair), params.isZeroToOne, params.amountIn);
         (uint256 amountInUsed, uint256 amountOut) = ISovereignPool(volatilePool).swap(params);
+        assertEq(amountOut, amountOutSimulation);
 
         uint256 k_post = isZeroToOne
             ? (reserve0 + amountInUsed) * (reserve1 - amountOut)
@@ -237,7 +258,9 @@ contract ValidlyFuzzTest is Test {
 
         uint256 k_pre = _stableInvariant(reserve0, reserve1);
 
+        uint256 amountOutSimulation = lens.simulateSwap(address(stablePair), params.isZeroToOne, params.amountIn);
         (uint256 amountInUsed, uint256 amountOut) = ISovereignPool(stablePool).swap(params);
+        assertEq(amountOutSimulation, amountOut);
 
         uint256 k_post = isZeroToOne
             ? _stableInvariant(reserve0 + amountInUsed, reserve1 - amountOut)
@@ -301,7 +324,9 @@ contract ValidlyFuzzTest is Test {
             return;
         }
 
+        uint256 amountOutSimulation = lens.simulateSwap(address(stablePair), params.isZeroToOne, params.amountIn);
         (uint256 amountInUsed, uint256 amountOut) = ISovereignPool(stablePool).swap(params);
+        assertEq(amountOut, amountOutSimulation);
 
         k_post = isZeroToOne
             ? _stableInvariant(reserve0 + amountInUsed - 10, reserve1 - amountOut)

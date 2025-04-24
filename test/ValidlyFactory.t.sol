@@ -100,18 +100,19 @@ contract ValidlyFactoryTest is Test {
 
         address pool = factory.pools(key);
 
+        token0.mint(address(pool), 1e18);
+        token1.mint(address(pool), 10e18);
+
         vm.store(address(pool), bytes32(uint256(5)), bytes32(uint256(1e18)));
         vm.store(address(pool), bytes32(uint256(6)), bytes32(uint256(10e18)));
 
         factory.claimFees(pool);
 
-        assertEq(SovereignPool(pool).feeProtocol0(), 1e18);
-        assertEq(SovereignPool(pool).feeProtocol1(), 10e18);
+        assertEq(token0.balanceOf(address(factory)), 1e18);
+        assertEq(token1.balanceOf(address(factory)), 10e18);
     }
 
     function test_claimTokens() public {
-        token0.mint(address(factory), 1e18);
-
         address ALICE = makeAddr("ALICE");
 
         vm.expectRevert(ValidlyFactory.ValidlyFactory__onlyProtocolManager.selector);
@@ -124,8 +125,12 @@ contract ValidlyFactoryTest is Test {
         vm.expectRevert(ValidlyFactory.ValidlyFactory__claimTokens_invalidRecipient.selector);
         factory.claimTokens(address(token0), address(0));
 
-        factory.claimTokens(address(token0), ALICE);
+        test_claimFees();
 
+        factory.claimTokens(address(token0), ALICE);
         assertEq(token0.balanceOf(ALICE), 1e18);
+
+        factory.claimTokens(address(token1), ALICE);
+        assertEq(token1.balanceOf(ALICE), 10e18);
     }
 }

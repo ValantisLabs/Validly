@@ -11,10 +11,13 @@ import {SovereignPoolFactory} from "@valantis-core/pools/factories/SovereignPool
 import {ALMLiquidityQuoteInput} from "@valantis-core/ALM/structs/SovereignALMStructs.sol";
 
 import {Validly} from "../src/Validly.sol";
+import {ValidlyLens} from "../src/ValidlyLens.sol";
 import {ValidlyFactory} from "../src/ValidlyFactory.sol";
 
 contract ValidlyTest is Test {
     ValidlyFactory public factory;
+    ValidlyLens public lens;
+
     ERC20Mock public token0;
     ERC20Mock public token1;
 
@@ -27,6 +30,8 @@ contract ValidlyTest is Test {
         // Create dummy tokens
         token0 = new ERC20Mock();
         token1 = new ERC20Mock();
+
+        lens = new ValidlyLens();
 
         ProtocolFactory protocolFactory = new ProtocolFactory(address(this));
 
@@ -79,9 +84,29 @@ contract ValidlyTest is Test {
         token0.approve(address(volatilePair), 1000 ether);
         token1.approve(address(volatilePair), 1000 ether);
 
-        volatilePair.deposit(1 ether, 10 ether, 0, block.timestamp + 1, address(this), "");
+        (uint256 sharesSimulation, uint256 amount0Simulation, uint256 amount1Simulation) =
+            lens.simulateDeposit(address(volatilePair), 1 ether, 10 ether);
+        (uint256 shares, uint256 amount0, uint256 amount1) =
+            volatilePair.deposit(1 ether, 10 ether, 0, block.timestamp + 1, address(this), "");
+        assertEq(sharesSimulation, shares);
+        assertEq(amount0Simulation, amount0);
+        assertEq(amount1Simulation, amount1);
 
-        volatilePair.deposit(1 ether, 20 ether, 0, block.timestamp + 1, address(this), "");
+        (sharesSimulation, amount0Simulation, amount1Simulation) =
+            lens.simulateDeposit(address(volatilePair), 40 ether, 0.1 ether);
+        (shares, amount0, amount1) =
+            volatilePair.deposit(40 ether, 0.1 ether, 0, block.timestamp + 1, address(this), "");
+        assertEq(sharesSimulation, shares);
+        assertEq(amount0Simulation, amount0);
+        assertEq(amount1Simulation, amount1);
+
+        (sharesSimulation, amount0Simulation, amount1Simulation) =
+            lens.simulateDeposit(address(volatilePair), 0.1 ether, 60 ether);
+        (shares, amount0, amount1) =
+            volatilePair.deposit(0.1 ether, 60 ether, 0, block.timestamp + 1, address(this), "");
+        assertEq(sharesSimulation, shares);
+        assertEq(amount0Simulation, amount0);
+        assertEq(amount1Simulation, amount1);
 
         vm.expectRevert(Validly.Validly__deposit_zeroShares.selector);
         volatilePair.deposit(1 ether, 0, 0, block.timestamp + 1, address(this), "");
@@ -116,8 +141,12 @@ contract ValidlyTest is Test {
         vm.expectRevert(Validly.Validly__withdraw_insufficientToken1Withdrawn.selector);
         volatilePair.withdraw(sharesToWithdraw, 0, 100 ether, block.timestamp + 1, address(this), "");
 
+        (uint256 amount0Simulation, uint256 amount1Simulation) =
+            lens.simulateWithdraw(address(volatilePair), sharesToWithdraw);
         (uint256 amount0, uint256 amount1) =
             volatilePair.withdraw(sharesToWithdraw, 0, 0, block.timestamp + 1, address(this), "");
+        assertEq(amount0Simulation, amount0);
+        assertEq(amount1Simulation, amount1);
 
         assertEq(amount0, expectedAmount0);
         assertEq(amount1, expectedAmount1);
@@ -144,7 +173,9 @@ contract ValidlyTest is Test {
 
         token1.approve(address(stablePool), 1 ether);
 
+        uint256 amountOutSimulation = lens.simulateSwap(address(stablePair), params.isZeroToOne, params.amountIn);
         (uint256 amountInUsed, uint256 amountOut) = stablePool.swap(params);
+        assertEq(amountOutSimulation, amountOut);
 
         assertApproxEqAbs(amountOut, amountInUsed, Math.mulDiv(amountInUsed, 1, 1000));
     }
@@ -178,7 +209,9 @@ contract ValidlyTest is Test {
         token0.approve(address(volatilePool), 1 ether);
         token1.approve(address(volatilePool), 10 ether);
 
+        uint256 amountOutSimulation = lens.simulateSwap(address(volatilePair), params.isZeroToOne, params.amountIn);
         (uint256 amountInUsed, uint256 amountOut) = volatilePool.swap(params);
+        assertEq(amountOutSimulation, amountOut);
 
         uint256 expectedAmountOut = Math.mulDiv(
             reserve1, Math.mulDiv(amountInUsed, 10000, 10001), reserve0 + Math.mulDiv(amountInUsed, 10000, 10001)

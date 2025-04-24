@@ -159,9 +159,7 @@ contract ValidlyFactory is IValidlyFactory {
     }
 
     /**
-     * @notice Claims rebase token fees accumulated in this contract.
-     * @dev By design of Sovereign Pools, manager fees for rebase tokens
-     *      get transferred on every swap to its manager (this contract).
+     * @notice Claims accummulated fees accumulated in this contract.
      * @param _token The address of the token to claim.
      * @param _recipient The address of the recipient.
      */
@@ -189,8 +187,7 @@ contract ValidlyFactory is IValidlyFactory {
      * @param _pool The address of the pool to claim the pool manager fees for.
      */
     function claimFees(address _pool) external {
-        // It marks all fees as protocol fees to be used by gauge
-        ISovereignPool(_pool).claimPoolManagerFees(10_000, 10_000);
+        ISovereignPool(_pool).claimPoolManagerFees(0, 0);
 
         emit FeesClaimed(_pool);
     }
